@@ -1,0 +1,9 @@
+SIR_plot.py ... functions for plotting GPs results (i.e., sensitivity analysis, prediction heatmaps)
+
+SIR_gp.py ... GP implementation for S(E)IR disease transmission.  
+
+GP_EDA.R ... R-Script for exploratory data analysis of trained GPs performances.
+
+SIR_GP-demo.ipynb ... jupyter notebook demonstrating the usage of trained GPs. 
+
+SIR_FitAndPredict_localAlpha.ipynb ... Fit & Predict (= model calibration) approach, municipality-specific disease establishment probability.

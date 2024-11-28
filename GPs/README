@@ -1,0 +1,6 @@
+duration/* ... contains model snapshot (*pth), complete training data (*round15.txt), RMSE during training (stats*), and predictions on test set (*pred.txt) for a GP trained on epidemic duration. 
+
+imax/* ... contains model snapshot (*pth), complete training data (*round15.txt), RMSE during training (stats*), and predictions on test set (*pred.txt) for a GP trained on maximal incidence.
+
+outbreak_probability/* ... contains model snapshot (*pth), complete training data (*round15.txt), RMSE during training (stats*), and predictions on test set (*pred.txt) for a GP trained on outbreak probabilities.
+
