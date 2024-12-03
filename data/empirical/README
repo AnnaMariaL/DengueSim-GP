@@ -1,3 +1,5 @@
+DD-AML-res-IDLinks.txt ... Data frame containing the link between the ID systems used in Siraj et al. 2018, and Clark et al. 2024. Please refer to ../../src/EmpData-Link.Rmd for details on the procedure. 
+
 OpenDengue-epidemics.txt ... Classified Dengue epidemics in Colombia at the municipality level between 2007 and 2019. Format: xmin = start of epidemic (date), xmax = end of epidemic (date), epidemic_id = <ID_ESPECIA>_<epidemicKey>, thres = adjusted incidence frequency threshold used during the classification process, duration = duration of epidemics (in days), imax = maximum incidence of epidemics. 
 
 OpenDengue-epidemics-reformat.txt ... same classified dengue epidemics as in OpenDengue-epidemics.txt, just slightly different format. This file is used by the Fit & Predict approach. ADM2_PCODE = municipality identifier, epidemic_id = epidemic identifier, t = start of the epidemic (days), imax = maximum incidence of epidemics, duration = duration of epidemics (in days). 
