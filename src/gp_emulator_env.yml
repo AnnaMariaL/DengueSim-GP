@@ -1,0 +1,24 @@
+name: gp_emulator_env
+channels:
+  - pytorch
+  - conda-forge
+  - defaults
+
+dependencies:
+  - python=3.10.6
+  - numpy
+  - pandas
+  - scipy
+  - pytorch=2.0.1
+  - torchvision
+  - torchaudio
+  - gpytorch=1.11
+  - salib
+  - ipython
+  - jupyter
+  - matplotlib
+  - seaborn
+  - pip
+  - pip:
+      - pyDOE
+      - emukit
