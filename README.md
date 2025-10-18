@@ -9,7 +9,7 @@ The repository accompanies the manuscript *Gaussian Process emulation for explor
 | ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **`src/SIR_gp.py`**           | Core implementation of the Gaussian Process emulator class that emulates the individual-based-model [DengueSim](https://github.com/AnnaMariaL/DengueSim). Automatically detects and uses GPU acceleration if available (via `torch.cuda.is_available()`); otherwise, it defaults to CPU computation. |
 | **`src/GP-demo.ipynb`**       | Jupyter notebook illustrating the principles behind GP emulation, including model training, prediction, sensitivity analysis, and comparison with true model outputs. 
-| **`src/gp_emulator_env.yml`** | Conda environment specification to reproduce the software environment used in the manuscript.                                                                                                                                                            |
+| **`src/gp_emulator_env.yml`** | Conda environment specification for GP usage.                                                                                                                                                            |
 | **`data/`**               | Directory containing example input/output data for model training and validation (if applicable). TBD                                                                                                                                                       |
 
 ---
@@ -36,7 +36,7 @@ conda activate gp_emulator_env
 
 The `src/SIR_gp.py` script defines a **Gaussian Process (GP) class** using `gpytorch`. It includes:
 
-* **Training and prediction** routines with automatic handling of data normalization.
+* **Training and prediction** routines with automatic data handling.
 
 * **Hardware flexibility**:
   The implementation checks for GPU availability:
