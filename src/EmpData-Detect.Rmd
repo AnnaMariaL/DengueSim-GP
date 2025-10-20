@@ -1,0 +1,460 @@
+---
+title: "Empirical Data Processing: Detecting Epidemics"
+author: "Anna Maria Langmüller"
+date: "July 2024"
+output: html_document
+---
+
+# Overview
+
+This notebook documents the steps taken to detect dengue epidemics at the municipality level using records from **Clarke *et al.* (2024)** (OpenDengue dengue incidence database, [https://opendengue.org/data.html](https://opendengue.org/data.html), accessed June 12, 2024) and municipality-level processed data from **Siraj *et al.* (2018)** ([Dryad dataset](https://doi.org/10.5061/dryad.83nj1)).
+
+The purpose of this notebook is to provide a transparent and reproducible workflow for detecting epidemic periods in empirical dengue incidence data. For a detailed methodological description, please refer to the accompanying [preprint](https://www.medrxiv.org/content/10.1101/2024.11.28.24318136v2).
+
+---
+
+# Setup
+
+---
+
+## Imports
+
+```{r setup, warning=FALSE}
+rm(list = ls())
+knitr::opts_chunk$set(echo = TRUE)
+
+# Set your working directory
+WD <- "./"
+setwd(WD)
+
+# Load required libraries
+library(plyr)       # Data frame manipulation
+library(tidyverse)  # Data wrangling
+library(npreg)      # Non-parametric regression (spline smoothing)
+
+library(ggplot2)    # Visualization
+library(cowplot)    # Plot composition
+```
+
+
+## Functions
+
+```{r functions}
+# calc_empirical_imax: compute maximum observed incidence for a given epidemic
+# Inputs:
+#   epidemic_row ... a row from my_epidemics (xmin, xmax, ocha_ID)
+#   dengue_data   ... the preprocessed dengue_df data
+calc_empirical_imax <- function(epidemic_row, dengue_data) {
+  
+  # Subset to the municipality of interest
+  mun_data <- subset(dengue_data, ocha_ID == epidemic_row$ocha_ID)
+  
+  # Subset to the epidemic period
+  period_data <- mun_data[
+    mun_data$calendar_start_date >= epidemic_row$xmin &
+    mun_data$calendar_start_date <= epidemic_row$xmax,
+  ]
+  
+  # Return the maximum observed adjusted incidence in this period
+  return(max(period_data$dengue_freq, na.rm = TRUE))
+}
+
+
+# plot_epidemics: visualize dengue incidence and detected epidemics for a municipality
+# Inputs:
+#   epidemics_df   ... detected epidemics (my_epidemics)
+#   ocha_id        ... municipality identifier
+#   dengue_data    ... preprocessed dengue incidence data
+plot_epidemics <- function(epidemics_df, ocha_id, dengue_data) {
+  
+  # Filter epidemics and incidence data for the selected municipality
+  mun_epidemics <- subset(epidemics_df, ocha_ID == ocha_id)
+  mun_counts    <- subset(dengue_data, ocha_ID == ocha_id)
+  
+  # Fit smoothing spline to adjusted incidence
+  spline_fit <- ss(x = mun_counts$calendar_start_date,
+                   y = mun_counts$dengue_freq,
+                   lambda = LAMBDA)
+  
+  spline_df <- data.frame(
+    calendar_start_date = mun_counts$calendar_start_date,
+    dengue_freq = fitted(spline_fit)
+  )
+  
+  # Base plot: bar chart of observed dengue incidence
+  g <- ggplot() +
+    theme_minimal() +
+    geom_bar(data = mun_counts,
+             aes(x = calendar_start_date, y = dengue_freq),
+             stat = "identity", fill = "white", color = "grey") +
+    geom_line(data = spline_df, aes(x = calendar_start_date, y = dengue_freq),
+              color = "#de5285") +
+    xlab("Date") +
+    ylab("Adjusted dengue incidence per week") +
+    ggtitle(paste("Municipality:", ocha_id))
+  
+  # Overlay epidemic thresholds and periods
+  if(nrow(mun_epidemics) > 0){
+    g <- g +
+      geom_hline(aes(yintercept = thres), data = mun_epidemics, color = "#00cdff") +
+      geom_rect(data = mun_epidemics,
+                aes(xmin = xmin, xmax = xmax, ymin = -Inf, ymax = Inf),
+                fill = "#00cdff", alpha = 0.3)
+  }
+  
+  return(g)
+}
+
+
+```
+
+## Data Paths
+
+```{r data_paths}
+# Data from Siraj et al. (2018)
+PATH_SIRAJ_DEMOGRAPHY <- "../data/empirical/Siraj_et_al_2018/municip_aggregate_non_ts.csv"
+PATH_SIRAJ_AEDES <- "../data/empirical/Siraj_et_al_2018/municip_Ae_aegypti_weeks_weighted.csv"
+
+# Dengue incidence data from Clarke et al. (2024)
+PATH_OD <- "../data/empirical/Clarke_et_al_2024/Highest temporal resolution data_COLOMBIA_20021229_20191231.csv"
+
+# Municipality linkage table
+PATH_LINK <- "../data/empirical/IDLinks.txt"
+
+# Global parameters
+THRES <- 0.001     # Incidence threshold for epidemic detection
+N_THRES <- 30000   # Minimum population size per municipality
+CORR_COEF <- 25    # Correction factor for dengue cases
+LAMBDA <- 1e-10    # Smoothing parameter for spline regression
+```
+
+## Data Import
+
+```{r data_import}
+
+# Load datasets
+dengue <- read.csv(PATH_OD)
+pop <- read.csv(PATH_SIRAJ_DEMOGRAPHY)
+aedes <- read.csv(PATH_SIRAJ_AEDES)
+link <- read.table(PATH_LINK, header = TRUE, sep = "\t")
+
+# Remove non-informative columns (columns with a single unique value)
+nonInformative <- sapply(dengue, function(x) length(unique(x)))
+dengue <- dengue[, nonInformative > 1]
+
+# Format date columns
+dengue$calendar_start_date <- as.Date(dengue$calendar_start_date)
+dengue$calendar_end_date <- as.Date(dengue$calendar_end_date)
+
+# Reformat IDs in linkage table
+link$ID_ESPACIA <- as.integer(gsub("CO", "", link$ocha_ID))
+
+# Merge datasets using municipality linkage
+dengue <- merge(dengue, link[, c("ID_ESPACIA", "full_name", "ocha_ID")], by = "full_name")
+pop <- merge(pop, link[, c("ID_ESPACIA", "ocha_ID")], by = "ID_ESPACIA")
+aedes <- merge(aedes, link[, c("ID_ESPACIA", "ocha_ID")], by = "ID_ESPACIA")
+```
+
+## Data Overview
+
+If we restrict the dataset to municipalities successfully linked between OpenDengue and Siraj *et al.* (2018), we obtain **154,060** weekly dengue incidence records between 2007 and 2019. The highest temporal resolution available is weekly, resulting in 678 reporting periods across 1,009 municipalities.  
+
+
+Each municipality is included in the database only if at least one dengue case was reported for a given week. On average, there are ~153 reporting periods per municipality, with reported weekly incidences ranging between 1 and 839 cases per week per municipality.
+
+```{r data_overview}
+# Keep only weekly reporting resolution
+if (any(dengue$T_res != "Week")) {
+  dengue <- subset(dengue, T_res == "Week")
+}
+
+# Summary statistics
+nrow(dengue)                                   # Total number of data entries
+length(unique(dengue$calendar_end_date))       # Number of unique reporting end dates
+length(unique(dengue$calendar_start_date))     # Number of unique reporting start dates
+length(unique(dengue$ocha_ID))              # Number of unique municipalities
+
+# Check reporting period lengths
+table(as.numeric(as.Date(dengue$calendar_end_date) - as.Date(dengue$calendar_start_date)))
+
+# Number of entries per municipality
+municip_summary <- ddply(dengue, .(ocha_ID),
+                         summarize, n = length(unique(calendar_start_date)))
+summary(municip_summary$n)
+
+# Maximum reported incidence per municipality
+municip_summary <- ddply(dengue, .(ocha_ID),
+                         summarize, maxInc = max(dengue_total))
+summary(municip_summary$maxInc)
+
+rm(municip_summary)
+```
+
+
+## Creating Sparse Time-Series Format
+
+Because the OpenDengue database only contains records for weeks with **≥1 reported case**, the dataset is “sparse.” For subsequent time-series analysis, we generate a complete panel dataset that includes all weeks for all municipalities in the observation period, filling missing weeks with zeros.
+
+
+```{r fill_sparse_date}
+# Extract unique municipality information
+all_municipalities <- dengue %>%
+  select(full_name, adm_1_name, adm_2_name, FAO_GAUL_code,
+         RNE_iso_code, ID_ESPACIA, ocha_ID) %>%
+  distinct()
+
+# Extract unique time information (weekly periods)
+all_weeks <- dengue %>%
+  select(calendar_start_date, calendar_end_date, Year) %>%
+  distinct()
+
+# Create full cross-product (municipality × week)
+template_df <- expand.grid(
+  ocha_ID = all_municipalities$ocha_ID,
+  calendar_start_date = all_weeks$calendar_start_date
+)
+
+# Merge municipality and time metadata
+template_df <- merge(all_municipalities, template_df, by = "ocha_ID")
+template_df <- merge(template_df, all_weeks, by = "calendar_start_date")
+
+# Merge with observed dengue data to fill in missing weeks
+dengue_df <- merge(
+  template_df,
+  dengue,
+  by = c("full_name", "adm_1_name", "adm_2_name",
+         "FAO_GAUL_code", "RNE_iso_code", "ID_ESPACIA",
+         "ocha_ID", "calendar_start_date",
+         "calendar_end_date", "Year"),
+  all.x = TRUE
+)
+
+# Fill missing incidence with zero
+dengue_df$dengue_total[is.na(dengue_df$dengue_total)] <- 0
+
+# Sort chronologically and by municipality
+dengue_df <- dengue_df %>% arrange(ocha_ID, calendar_start_date)
+
+# Sanity checks
+table(table(dengue_df$ocha_ID))
+table(table(dengue_df$calendar_start_date))
+
+rm(all_municipalities, all_weeks, template_df)
+gc()
+```
+
+---
+
+
+# Detecting Epidemics
+
+We focus on municipalities that meet the following criteria:  
+
+1. **Population size**: At least 30,000 individuals (to match our individual-based simulations).  
+2. **Adjusted dengue incidence**: Maximum incidence of at least 0.1% in any reported week.  
+
+The adjusted dengue incidence is calculated by multiplying reported cases by a correction factor (`CORR_COEF = 25`) and dividing by municipality population.
+
+Epidemics are defined as periods of ≥4 weeks where the spline-smoothed incidence exceeds the median adjusted incidence for that municipality.
+
+
+```{r detect_epidemics_prep}
+
+# Merge population data
+dengue_df <- merge(
+  dengue_df, 
+  pop[, c("ID_ESPACIA", "Wpop2015")],
+  by = "ID_ESPACIA",
+  all.x = TRUE
+)
+
+# Calculate adjusted dengue proportions
+dengue_df$dengue_freq <- dengue_df$dengue_total * CORR_COEF / dengue_df$Wpop2015
+
+# Identify candidate municipalities based on thresholds
+candidate_id <- unique(
+  dengue_df$ocha_ID[
+    dengue_df$dengue_freq >= THRES & dengue_df$Wpop2015 >= N_THRES
+  ]
+)
+
+# Prepare empty data frame to store epidemic events
+my_epidemics <- data.frame(
+  xmin = as.Date(character()),
+  xmax = as.Date(character()),
+  thres = numeric(),
+  ocha_ID = character(),
+  epidemic_id = character()
+)
+```
+
+
+
+
+```{r detect_epidemics}
+
+for (i in candidate_id) {
+  
+  # Subset data for current municipality
+  dengue_iter <- subset(dengue_df, ocha_ID == i)
+  
+  # Median incidence (excluding zeros)
+  thres_iter <- quantile(dengue_iter$dengue_freq[dengue_iter$dengue_freq > 0], 0.5)
+  
+  # Fit smoothing spline
+  ss.mod <- ss(x = dengue_iter$calendar_start_date,
+               y = dengue_iter$dengue_freq,
+               lambda = LAMBDA)
+  
+  # Predicted spline values
+  ss.fit <- data.frame(
+    calendar_start_date = dengue_iter$calendar_start_date,
+    dengue_freq = fitted(ss.mod)
+  )
+  
+  # Identify epidemic weeks (above median threshold)
+  ss.fit$epidemic <- ss.fit$dengue_freq > thres_iter
+  
+  # Assign epidemic IDs
+  ss.fit$epidemic_id <- 0
+  epidemic_id <- 1
+  row_counter <- 2
+  ss.fit$epidemic_id[1] <- ifelse(ss.fit$epidemic[1], epidemic_id, 0)
+  
+  while (row_counter <= nrow(ss.fit)) {
+    if (ss.fit$epidemic[row_counter]) {
+      if (!ss.fit$epidemic[row_counter - 1] && any(ss.fit$epidemic_id > 0)) {
+        epidemic_id <- epidemic_id + 1
+      }
+      ss.fit$epidemic_id[row_counter] <- epidemic_id
+    }
+    row_counter <- row_counter + 1
+  }
+  
+  # Extract epidemic ranges
+  if (any(ss.fit$epidemic_id > 0)) {
+    iter_epidemics <- ddply(
+      ss.fit[ss.fit$epidemic_id > 0, ],
+      .(epidemic_id),
+      summarize,
+      xmin = min(calendar_start_date),
+      xmax = max(calendar_start_date)
+    )
+    
+    # Keep only epidemics lasting ≥4 weeks
+    iter_epidemics <- subset(iter_epidemics, xmax - xmin > 27)
+    
+    if (nrow(iter_epidemics) > 0) {
+      iter_epidemics$ocha_ID <- i
+      iter_epidemics$epidemic_id <- paste(iter_epidemics$ocha_ID, iter_epidemics$epidemic_id, sep = ".")
+      iter_epidemics$thres <- thres_iter
+      
+      my_epidemics <- rbind(
+        my_epidemics,
+        iter_epidemics[, c("xmin", "xmax", "ocha_ID", "epidemic_id", "thres")]
+      )
+    }
+  }
+}
+
+# Calculate epidemic duration
+my_epidemics$duration <- my_epidemics$xmax - my_epidemics$xmin
+
+# Calculate maximum observed incidence per epidemic
+my_epidemics$imax <- sapply(1:nrow(my_epidemics), function(k) 
+  calc_empirical_imax(my_epidemics[k,], dengue_df)
+)
+
+# Filter out epidemics below incidence threshold
+my_epidemics <- subset(my_epidemics, imax >= THRES)
+
+# Clean up
+rm(iter_epidemics, ss.fit, ss.mod, epidemic_id, i, dengue_iter, row_counter, thres_iter)
+gc()
+```
+
+## Characterizing epidemics
+
+### Example plots
+
+The plots below show a random selection of municipalities. For each municipality:
+
+* Grey bars represent the adjusted weekly dengue incidence (cases per population).
+* Pink line is a smoothing spline fitted to the time series, highlighting trends in incidence.
+* Light-blue rectangles indicate periods detected as epidemic outbreaks.
+* Blue horizontal line shows the median incidence threshold used to define epidemics.
+
+
+```{r example_plots}
+# Randomly select 5 municipalities for example plots
+example_ids <- sample(candidate_id, size = 5)
+
+for(id in example_ids){
+  print(plot_epidemics(epidemics_df = my_epidemics,
+                       ocha_id = id,
+                       dengue_data = dengue_df))
+}
+
+rm(example_ids, id)
+```
+
+### Summary statistics of all detected epidemics
+
+```{r epidemics_stats}
+# Average number of outbreaks per municipality
+avg_outbreaks <- mean(table(my_epidemics$ocha_ID))
+
+# Average duration of epidemics (in days)
+avg_duration <- mean(my_epidemics$duration)
+
+# Average maximum adjusted incidence
+avg_max_incidence <- mean(my_epidemics$imax)
+
+cat("Average number of outbreaks per municipality:", round(avg_outbreaks,2), "\n")
+cat("Average duration per outbreak (days):", round(avg_duration,2), "\n")
+cat("Average maximum adjusted incidence (%):", round(avg_max_incidence*100,2), "\n")
+```
+
+# Store Epidemics
+
+```{r store_epidemics}
+# Prepare epidemic summary table for storage
+epidemic_summary <- data.frame(
+  ocha_ID      = my_epidemics$ocha_ID,       # Municipality ID
+  epidemic_id  = my_epidemics$epidemic_id,      # Unique epidemic identifier
+  start_day    = yday(as.Date(my_epidemics$xmin)), # Day of year for epidemic start
+  max_incidence = my_epidemics$imax,            # Maximum incidence during epidemic
+  duration_days = as.numeric(my_epidemics$duration) # Epidemic duration in days
+)
+
+
+# Prepare a full version of the epidemic data
+epidemic_full <- data.frame(
+  xmin        = as.Date(my_epidemics$xmin),
+  xmax        = as.Date(my_epidemics$xmax),
+  ocha_ID  = my_epidemics$ocha_ID,
+  epidemic_id = my_epidemics$epidemic_id,
+  thres       = my_epidemics$thres,
+  duration    = as.numeric(my_epidemics$duration),
+  imax        = my_epidemics$imax
+)
+
+
+# Save both tables as tab-separated text files
+write.table(
+  epidemic_summary,
+  file      = "../data/empirical/OpenDengue_detected_epidemics.txt",
+  row.names = FALSE, col.names = TRUE, quote = FALSE, sep = "\t"
+)
+
+write.table(
+  epidemic_full,
+  file      = "../data/empirical/OpenDengue_detected_epidemics_full.txt",
+  row.names = FALSE, col.names = TRUE, quote = FALSE, sep = "\t"
+)
+
+
+```
+
+
+
