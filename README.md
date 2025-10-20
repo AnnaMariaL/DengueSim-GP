@@ -12,8 +12,12 @@ The repository accompanies the manuscript *Gaussian Process emulation for explor
 | **`src/GP-demo.ipynb`**       | Jupyter notebook illustrating the principles behind GP emulation, including model training, prediction, sensitivity analysis, and comparison with true model outputs. |
 | **`src/gp_emulator_env.yml`** | Conda environment specification for GP usage.|
 | **`src/EmpData-Link.Rmd`**  | R Markdown workflow used to link municipality-level data. |
+| **`src/EmpData-Detect.Rmd`** | R Markdown workflow for identifying epidemic periods from dengue incidence time series and exporting detected epidemic intervals (see `OpenDengue*.txt` outputs under `data/empirical/`).     
 | **`data/`** | Directory containing simulation and empirical datasets used for emulator validation and calibration. |
 | **`data/empirical/`** | Contains real-world dengue incidence, environmental, and demographic data used for empirical analyses and data linkage. See below for details.  |
+
+
+---
 
 ### `data/empirical/` Directory Overview
 
@@ -22,7 +26,8 @@ The repository accompanies the manuscript *Gaussian Process emulation for explor
 | **`Clarke_et_al_2024/`** | Contains *OpenDengue* incidence data from Clarke *et al.* (2024). |
 | **`Siraj_et_al_2018/`** | Contains environmental and demographic indicators at the municipality level, originally published by Siraj *et al.* (2018). |
 | **`linkIDs.txt`** | Linkage table connecting dengue incidence data with environmental and demographic indicators at the municipality level (generated with `../src/EmpData-Link.Rmd`)  |
-
+| **`OpenDengue_detected_epidemics.txt`**      | Summary of all detected dengue epidemics by municipality, including timing (`t`, `duration`) and peak incidence (`imax`).                                                 |
+| **`OpenDengue_detected_epidemics_full.txt`** | Full version of the detected epidemic dataset, containing start and end dates (`xmin`, `xmax`), municipality codes, epidemic IDs, thresholds, durations, and peak values. |
 ---
 
 ## Environment Setup
