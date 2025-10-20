@@ -1,0 +1,708 @@
+---
+title: "Empirical data preprocessing"
+author: "Anna Maria Langmüller"
+date: "July 2024"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+# Overview
+
+This notebook documents the steps taken to match municipality-level records from **Clarke *et al.* (2024)** (OpenDengue dengue incidence database, [https://opendengue.org/data.html](https://opendengue.org/data.html), accessed June 12, 2024) and **Siraj *et al.* (2018)** (municipality-level processed environmental data, Dryad: [https://doi.org/10.5061/dryad.83nj1](https://doi.org/10.5061/dryad.83nj1), accessed Feb 20, 2024).
+
+The datasets use slightly different naming conventions and identifiers for Colombian municipalities and departments. We matched records based on municipality and department names, using manual review and spatial boundary checks with shape files in cases of minor discrepancies—following an approach similar to Clarke *et al.* (2024).
+
+A shapefile is a standard geospatial format that stores the geometry and attributes of geographic features—in this case, the administrative boundaries of Colombian municipalities. These files are large and are therefore not included in this repository.
+
+The purpose of this notebook is to document the linkage process clearly and transparently. For instructions on obtaining the required shapefiles, please refer to the accompanying [preprint](https://www.medrxiv.org/content/10.1101/2024.11.28.24318136v2).
+
+---
+
+
+# Setup
+
+## Imports
+
+```{r setup, warning=FALSE}
+rm(list = ls())
+knitr::opts_chunk$set(echo = TRUE)
+
+WD <- "./" # Set your working directory here
+setwd(WD)
+
+# Load required libraries
+library(sf)         # Spatial data (shapefiles)
+library(stringi)    # String standardization
+library(stringdist) # String distance metrics
+library(plyr)       # Data frame manipulations
+library(dplyr)      # Data frame manipulations
+library(ggplot2)    # Visualization
+```
+
+
+## Functions 
+
+```{r functions}
+
+# Visualize overlapping polygons for a given FAO GAUL code
+#
+# This function compares how a single FAO GAUL code is represented
+# across two shapefiles (OpenDengue and OCHA) by plotting their
+# corresponding polygons
+#
+# Arguments:
+# - gaul_code: Numeric. FAO GAUL code to visualize.
+# - shapefile_od: sf object. OpenDengue shapefile (admin-2 level).
+# - shapefile_ocha: sf object. OCHA shapefile (admin-2 level).
+# - data_od: Data frame. OpenDengue incidence data with columns
+#   'adm_1_name' (department) and 'adm_2_name' (municipality).
+#
+# Returns:
+# A ggplot object showing overlapping administrative boundaries
+# for the given GAUL code:
+#   - Pink: OpenDengue shapefile polygons
+#   - Blue: OCHA shapefile polygons
+#
+# Example:
+# plot_gaul_overlap(13521, shapefile_od = openDengue_shape,
+#                   shapefile_ocha = ocha_shape,
+#                   data_od = dengue_incidence)
+
+plot_gaul_overlap <- function(gaul_code, shapefile_od, shapefile_ocha, data_od) {
+  
+  # --- Standardize OCHA names for matching ---
+  shapefile_ocha$department_name <- toupper(
+    stri_trans_general(shapefile_ocha$ADM1_ES, "latin-ascii")
+  )
+  shapefile_ocha$municipality_name <- toupper(
+    stri_trans_general(shapefile_ocha$ADM2_ES, "latin-ascii")
+  )
+  
+  # --- Subset OpenDengue shapefile by GAUL code ---
+  od_polygon <- shapefile_od[shapefile_od$GAUL_CODE == gaul_code, ]
+  
+  # --- Identify municipalities linked to this GAUL code in the dengue data ---
+  linked_municipalities <- data_od[data_od$FAO_GAUL_code == gaul_code,
+                                   c("adm_1_name", "adm_2_name")]
+  linked_municipalities <- linked_municipalities[!duplicated(linked_municipalities), ]
+  
+  # --- Subset OCHA shapefile by matching names ---
+  ocha_polygons <- subset(
+    shapefile_ocha,
+    municipality_name %in% toupper(linked_municipalities$adm_2_name) &
+      department_name %in% toupper(linked_municipalities$adm_1_name)
+  )
+  
+  # --- Ensure both are sf objects ---
+  od_polygon <- st_as_sf(od_polygon)
+  ocha_polygons <- st_as_sf(ocha_polygons)
+  
+  # --- Build visualization ---
+  ggplot() +
+    geom_sf(data = ocha_polygons, color = "darkblue", fill = NA, linewidth = 1) +
+    geom_sf(data = od_polygon, color = "deeppink2", fill = NA, linewidth = 1) +
+    theme_minimal(base_size = 14) +
+    theme(axis.text.x = element_text(angle = 90, vjust = 0.5)) +
+    ggtitle(paste("FAO GAUL Code:", gaul_code))
+}
+
+
+# Visualize a single OpenDengue municipality vs OCHA polygon
+#
+# This function compares the geographic boundaries of one OpenDengue
+# municipality (by GAUL code) with the corresponding OCHA polygon
+# (by OCHA municipality ID)
+#
+# Arguments:
+# - od_gaul_code: Numeric. GAUL code of the OpenDengue municipality.
+# - ocha_munic_id: OCHA municipality ID (string).
+# - od_shape: sf object. OpenDengue shapefile (admin-2 level).
+# - ocha_shape: sf object. OCHA shapefile (admin-2 level).
+#
+# Returns:
+# - A ggplot object showing overlapping polygons:
+#     * Pink = OpenDengue
+#     * Blue = OCHA
+
+plot_gaul_byIDs <- function(od_gaul_code, ocha_munic_id, od_shape, ocha_shape) {
+  
+  # Subset OpenDengue polygon by GAUL code
+  od_polygon <- od_shape[od_shape$GAUL_CODE == od_gaul_code, ]
+  
+  # Subset OCHA polygon by municipality ID
+  ocha_polygon <- ocha_shape[ocha_shape$ADM2_PCODE == ocha_munic_id, ]
+  
+  # Convert to sf objects for plotting
+  od_polygon <- st_as_sf(od_polygon)
+  ocha_polygon <- st_as_sf(ocha_polygon)
+  
+  # Build plot
+  ggplot() +
+    geom_sf(data = ocha_polygon, color = "darkblue", fill = NA, linewidth = 1) +
+    geom_sf(data = od_polygon, color = "deeppink2", fill = NA, linewidth = 1) +
+    theme_minimal(base_size = 14) +
+    theme(axis.text.x = element_text(angle = 90, vjust = 0.5)) +
+    ggtitle(paste0(
+      ocha_polygon$adm1_std, ": ", ocha_polygon$adm2_std
+    ))
+}
+
+
+#Given a single dengue incidence row, this function identifies the best matching polygon(s) in the OCHA shapefile by comparing standardized municipality and department names using string distances. It returns the candidate polygon(s) along with the dengue ID for traceability.
+link_municipality_to_ocha <- function(dengue_row, od_shape, ocha_shape) {
+  
+  # Compute string distances for municipality names
+  ocha_shape$municipality_dist <- sapply(seq_len(nrow(ocha_shape)), function(j) {
+    stringdist(dengue_row$adm2_std, ocha_shape$adm2_std[j])
+  })
+  
+  # Keep only OCHA polygons with minimal municipality distance
+  candidate_polygons <- ocha_shape[ocha_shape$municipality_dist == min(ocha_shape$municipality_dist), ]
+  
+  # Compute string distances for department names among remaining candidates
+  candidate_polygons$department_dist <- sapply(seq_len(nrow(candidate_polygons)), function(j) {
+    stringdist(dengue_row$adm1_std, candidate_polygons$adm1_std[j])
+  })
+  
+  # Keep only candidates with minimal department distance
+  candidate_polygons <- candidate_polygons[candidate_polygons$department_dist == min(candidate_polygons$department_dist), ]
+  
+  # Add dengue ID for traceability
+  candidate_polygons$dengue_ID <- dengue_row$dengue_ID
+  
+  return(candidate_polygons)
+}
+```
+
+
+
+## Data Paths
+
+```{r global_variables}
+# Path to data from Siraj et al. (2018)
+PATH_SIRAJ <- "../data/empirical/Siraj_et_al_2018/municip_aggregate_non_ts.csv"
+
+# Path to dengue incidence data from Clarke et al. (2024)
+PATH_OD <- "../data/empirical/Clarke_et_al_2024/Highest temporal resolution data_COLOMBIA_20021229_20191231.csv"
+
+# Path to OCHA shapefile (https://data.humdata.org/dataset/cod-ab-col, accessed Feb 22, 2024)
+PATH_OCHA_SHAPE <- "/Users/anna/Desktop/DD-Material/shapefiles/col-administrative-divisions-shapefiles/col_admbnda_adm2_mgn_20200416.shp"
+
+# Path to OpenDengue shapefile (provided by Oliver Brady, Mar 19, 2024)
+PATH_OPENDENGUE_SHAPE <- "/Users/anna/Desktop/DD-Material/shapefiles/OpenDengue_shapefile/Admin2(2011)_COL.shp"
+```
+
+
+## Data Import
+
+```{r read_data}
+# Read Siraj sample data
+env_data <- read.csv(PATH_SIRAJ, header = TRUE)
+
+# Read OpenDengue incidence data
+dengue_incidence <- read.csv(PATH_OD, header = TRUE)
+dengue_incidence <- dengue_incidence[dengue_incidence$T_res == "Week", ] # Keep only weekly data
+
+# Read shapefiles
+ocha_shape <- st_read(PATH_OCHA_SHAPE)
+openDengue_shape <- st_read(PATH_OPENDENGUE_SHAPE)
+```
+
+---
+
+# ID and Naming Consistency Checks
+
+To verify data consistency, we perform two levels of checks:
+
+1. **ID matching:**
+   We confirm that municipality identifiers (numeric codes) from each dataset are found in the corresponding shapefile.
+
+   * For the **Siraj *et al.* (2018)** data, one municipality (*Rea en Litigo*, ID 99999) is not present in the OCHA shapefile. This region does not appear in the dengue incidence data either.
+   * For the **OpenDengue (Clarke *et al.*, 2024)** data, all FAO GAUL IDs are present in the associated shapefile.
+
+2. **Name consistency:**
+   Because we had to rely on shapefiles that were released after the publication of the  Siraj data, we checked whether the municipality names in Siraj and OCHA are consistent.
+   To do this, we standardize both name sets (lowercase, remove accents) and compute a *string distance score* between matched IDs. A score of 0 means identical names.
+   Most municipalities show excellent agreement, with minor differences due to missing diacritics or additional descriptors.
+
+## ID Matching
+
+```{r ID_check}
+# Prepare and compare IDs
+ocha_id <- gsub("CO", "", ocha_shape$ADM2_PCODE)
+ocha_id <- as.integer(unique(ocha_id))
+env_id <- as.integer(unique(env_data$ID_ESPACIA))
+
+# Identify Siraj IDs not present in OCHA
+table(env_id %in% ocha_id)
+absent_id <- setdiff(env_id, ocha_id)
+env_data[env_data$ID_ESPACIA == absent_id, ]  # Not present = "REA EN LITIGIO"
+
+# Confirm absence in incidence data
+table(dengue_incidence$adm_2_name[grep("REA", dengue_incidence$adm_2_name)])
+
+# Check OpenDengue IDs
+dengue_id <- as.integer(unique(dengue_incidence$FAO_GAUL_code))
+od_id <- as.integer(unique(openDengue_shape$GAUL_CODE))
+table(dengue_id %in% od_id)
+
+rm(absent_id, dengue_id, ocha_id, od_id, env_id)
+```
+
+
+## Municipality Name Comparison
+
+```{r naming_check}
+# Standardize Siraj et al. names
+env_names <- subset(env_data, select = c("ID_ESPACIA", "NOM_MUNICI"))
+colnames(env_names) <- c("ID", "env_name")
+env_names$env_name_std <- tolower(stri_trans_general(env_names$env_name, "latin-ascii"))
+
+# Standardize OCHA names
+ocha_names <- data.frame("ID" = ocha_shape$ADM2_PCODE, "ocha_name" = ocha_shape$ADM2_ES)
+ocha_names$ID <- as.integer(gsub("CO", "", ocha_names$ID))
+ocha_names$ocha_name_std <- tolower(stri_trans_general(ocha_names$ocha_name, "latin-ascii"))
+
+# Merge by ID
+matched_names <- merge(env_names, ocha_names, by = "ID")
+
+# Calculate distance in name strings
+matched_names$score <- stringdist(matched_names$env_name_std, matched_names$ocha_name_std)
+table(matched_names$score) # Majority show minimal differences
+matched_names <- matched_names[order(matched_names$score, decreasing = TRUE),]
+
+# Inspect higher mismatches
+#print(matched_names[which(matched_names$score > 1), c("env_name_std", "ocha_name_std")])
+
+# Example: Municipality with larger mismatch score (ID 88564)
+ocha_shape[which(ocha_shape$ADM2_PCODE == "CO88564"), ]
+env_data[which(env_data$ID_ESPACIA == 88564), ]
+
+rm(env_names, ocha_names, matched_names)
+```
+
+
+---
+
+# Linking: Matching Environmental and Dengue Data 
+
+Integrating the data from *Siraj et al.* (2018) with the **dengue incidence data** from the *OpenDengue* database (*Clarke et al.*, 2024) requires careful consideration due to several structural inconsistencies between datasets.
+
+* **Non-unique municipality names:**
+  Multiple municipalities (admin-2 level) may share the same name but belong to different departments (admin-1 level).
+
+* **Missing diacritics in Siraj data:**
+  Municipality names in the Siraj *et al.* dataset omit special characters, complicating direct text matching.
+
+* **Non-unique FAO GAUL codes:**
+  A small number of FAO GAUL codes correspond to multiple municipalities (2–4).
+  This one-to-many mapping can cause ambiguity when merging data by GAUL code alone.
+
+To illustrate the last issue, we visualize several FAO GAUL codes using the two available shapefiles:
+
+* **Pink outlines:** Polygons from the **OpenDengue** shapefile
+* **Blue outlines:** Polygons from the **OCHA** shapefile
+
+
+```{r fao_gaul_code}
+# Extract unique combinations of GAUL code, municipality, and department
+fao_gaul_lookup <- subset(
+  dengue_incidence,
+  select = c("FAO_GAUL_code", "full_name", "adm_2_name")
+)
+fao_gaul_lookup <- fao_gaul_lookup[!duplicated(fao_gaul_lookup$full_name), ]
+
+# Print summary
+cat("Number of unique municipalities:", nrow(fao_gaul_lookup), "\n")
+cat("Number of unique FAO GAUL codes:", length(unique(fao_gaul_lookup$FAO_GAUL_code)), "\n")
+
+# Visualize examples of GAUL code overlaps
+plot_gaul_overlap(
+  gaul_code = 13521,
+  shapefile_od = openDengue_shape,
+  shapefile_ocha = ocha_shape,
+  data_od = dengue_incidence
+)
+
+plot_gaul_overlap(
+  gaul_code = 13441,
+  shapefile_od = openDengue_shape,
+  shapefile_ocha = ocha_shape,
+  data_od = dengue_incidence
+)
+
+plot_gaul_overlap(
+  gaul_code = 13516,
+  shapefile_od = openDengue_shape,
+  shapefile_ocha = ocha_shape,
+  data_od = dengue_incidence
+)
+
+rm(fao_gaul_lookup)
+```
+
+## Linking Approach
+
+We aim to link municipalities in the OpenDengue incidence data to their corresponding polygon names in the OCHA shapefile. We do not use the Siraj *et al.* data directly here because it lacks special characters (accents and diacritics), which would make exact name matching unreliable.
+
+While geographic features alone are not sufficient for automatic linkage (see previous GAUL code visualizations), they are useful for quality control when municipality or department names do not match perfectly.
+
+The approach used here:
+
+1. Prepare a clean dengue dataset: remove duplicates and standardize municipality and department names to lowercase ASCII.
+2. Standardize OCHA shapefile names similarly.
+3. Link each dengue municipality to candidate OCHA polygons using **string distance**:
+
+   * First, identify polygons with minimal distance for municipality names.
+   * Then, among those candidates, select polygons with minimal distance for department names.
+4. Trace which incidence record each polygon corresponds to.
+
+This method allows minor discrepancies (e.g., missing accents or extra whitespace) to be handled automatically, while flagging ambiguous matches for manual inspection.
+
+
+```{r apply_linking_function}
+# Prepare dengue municipalities for linking
+dengue_munic_link <- dengue_incidence[, c("adm_1_name", "adm_2_name", "full_name", "FAO_GAUL_code")]
+dengue_munic_link <- dengue_munic_link[!duplicated(dengue_munic_link$full_name), ]
+dengue_munic_link$dengue_ID <- seq_len(nrow(dengue_munic_link))
+
+# Standardize names for matching
+dengue_munic_link$adm2_std <- tolower(stri_trans_general(dengue_munic_link$adm_2_name, "latin-ascii"))
+dengue_munic_link$adm1_std <- tolower(stri_trans_general(dengue_munic_link$adm_1_name, "latin-ascii"))
+ocha_shape$adm2_std <- tolower(stri_trans_general(ocha_shape$ADM2_ES, "latin-ascii"))
+ocha_shape$adm1_std <- tolower(stri_trans_general(ocha_shape$ADM1_ES, "latin-ascii"))
+
+# Apply linking function for all dengue municipalities
+link_results_list <- lapply(seq_len(nrow(dengue_munic_link)), function(i) {
+  link_municipality_to_ocha(
+    dengue_row = dengue_munic_link[i, ],
+    od_shape = openDengue_shape,
+    ocha_shape = ocha_shape
+  )
+})
+
+# Combine results into a single data frame
+link_results <- do.call(rbind, link_results_list)
+```
+
+
+### Step 1: Perfect Match
+
+In this first step, we identify cases where both the standardized municipality name and department name match perfectly between the OpenDengue data and the OCHA shapefile. These are the “perfect matches,” which can be linked automatically.
+
+```{r linking_step1}
+# STEP 0: Initialize tracking variables ----
+remaining_dengue_IDs <- unique(dengue_munic_link$dengue_ID)  # IDs still to be linked
+remaining_candidates <- link_results                           # Candidate matches from previous linking step
+
+# STEP 1: Perfect matches ----
+perfect_match_idx <- which(
+  remaining_candidates$municipality_dist == 0 &
+    remaining_candidates$department_dist == 0
+)
+
+# Sanity check: each dengue_ID should have a unique perfect match
+stopifnot(length(unique(remaining_candidates$dengue_ID[perfect_match_idx])) ==
+            nrow(remaining_candidates[perfect_match_idx, ]))
+
+# Extract final perfect matches
+final_link_perfect <- remaining_candidates[perfect_match_idx, ]
+
+# Remove linked municipalities from remaining tracking variables
+remaining_dengue_IDs <- setdiff(remaining_dengue_IDs, final_link_perfect$dengue_ID)
+remaining_candidates <- remaining_candidates[!remaining_candidates$dengue_ID %in% final_link_perfect$dengue_ID, ]
+
+# Inspect remaining string distance scores (for manual review or next steps)
+table(remaining_candidates$municipality_dist, remaining_candidates$department_dist)
+```
+
+### Step 2: Department Name Mismatches
+
+In this step, we handle cases where the municipality name matches perfectly, but the department name differs slightly.
+
+Many of these differences are minor spelling or abbreviation issues, such as:
+
+* `norte de santander` (OCHA) vs `norte santander` (OpenDengue)
+* `valle del cauca` (OCHA) vs `valle` (OpenDengue)
+* `la guajira` (OCHA) vs `guajira` (OpenDengue)
+
+Visual inspection of the corresponding polygons confirms that these are indeed correct matches.
+
+```{r linking_step2}
+# STEP 2: Perfect municipality match, but department differs ----
+dept_mismatch_idx <- which(
+  remaining_candidates$municipality_dist == 0 & remaining_candidates$department_dist > 0
+)
+
+# Inspect which department names are affected
+table(remaining_candidates$adm1_std[dept_mismatch_idx])
+
+# Optional: visualize some key examples to confirm geographic match
+#plot_gaul_byIDs(od_gaul_code = 14133, ocha_munic_id = "CO54206", od_shape = openDengue_shape, ocha_shape = ocha_shape)
+#plot_gaul_byIDs(od_gaul_code = 13964, ocha_munic_id = "CO44090", od_shape = openDengue_shape, ocha_shape = ocha_shape)
+#plot_gaul_byIDs(od_gaul_code = 14378, ocha_munic_id = "CO76233", od_shape = openDengue_shape, ocha_shape = ocha_shape)
+
+
+# STEP 2a: Specific departments with minor differences ----
+dept_corrections <- c("norte de santander", "valle del cauca", "la guajira")
+correctable_idx <- which(
+  remaining_candidates$municipality_dist == 0 &
+    remaining_candidates$adm1_std %in% dept_corrections
+)
+
+# Sanity checks
+# Only municipality distance is zero
+table(remaining_candidates$municipality_dist[correctable_idx],
+      remaining_candidates$department_dist[correctable_idx])
+
+# Verify department distance is consistent for these cases
+table(remaining_candidates$department_dist[correctable_idx],
+      remaining_candidates$adm1_std[correctable_idx])
+
+# Each dengue ID should appear only once
+stopifnot(length(unique(remaining_candidates$dengue_ID[correctable_idx])) == length(correctable_idx))
+
+# Add these corrected links to the final set
+final_link_perfect <- rbind(final_link_perfect, remaining_candidates[correctable_idx, ])
+
+# Remove linked municipalities from remaining tracking variables
+remaining_candidates <- remaining_candidates[!remaining_candidates$dengue_ID %in% final_link_perfect$dengue_ID, ]
+remaining_dengue_IDs <- setdiff(remaining_dengue_IDs, final_link_perfect$dengue_ID)
+
+# Inspect remaining string distance scores
+table(remaining_candidates$municipality_dist, remaining_candidates$department_dist)
+
+# Count remaining cases with perfect municipality but differing department
+sum(remaining_candidates$municipality_dist == 0 & remaining_candidates$department_dist > 0)
+```
+
+### Step 2b: Inspect Remaining Department Mismatches
+
+After handling the three department name differences (`norte de santander`, `valle del cauca`, `la guajira`), there are 14 remaining municipalities with a perfect municipality match but mismatched department names. These appear dubious and will not be included in the final linkage.
+
+```{r linking_step2b}
+remaining_dept_mismatch <- subset(
+  remaining_candidates,
+  municipality_dist == 0 & department_dist > 0
+)
+
+# Create a concise summary table for inspection
+remaining_summary <- data.frame(
+  dengue_ID = remaining_dept_mismatch$dengue_ID,
+  od_municipality = dengue_munic_link$adm2_std[match(remaining_dept_mismatch$dengue_ID, dengue_munic_link$dengue_ID)],
+  od_department = dengue_munic_link$adm1_std[match(remaining_dept_mismatch$dengue_ID, dengue_munic_link$dengue_ID)],
+  ocha_municipality = remaining_dept_mismatch$adm2_std,
+  ocha_department = remaining_dept_mismatch$adm1_std
+)
+
+# Print summary of remaining 14 dubious matches
+print(remaining_summary)
+
+# Remove these dubious links from the remaining candidates
+dubious_idx <- which(remaining_candidates$municipality_dist == 0 & remaining_candidates$department_dist > 0)
+dubious_IDs <- remaining_candidates$dengue_ID[dubious_idx]
+
+remaining_candidates <- remaining_candidates[!remaining_candidates$dengue_ID %in% dubious_IDs, ]
+remaining_dengue_IDs <- setdiff(remaining_dengue_IDs, dubious_IDs)
+
+# Clean up temporary variables
+rm(remaining_dept_mismatch, remaining_summary, dubious_idx, dubious_IDs)
+
+```
+
+
+### Step 3: Municipality Name Mismatch
+
+In this step, we inspect cases where the department matches perfectly but the municipality name differs. 
+There are 41 such cases in our dataset.
+
+Because automated string matching cannot always resolve these discrepancies, we visually inspected the geographic polygons to decide whether the match seemed reasonable (partial overlap or similar shape) or should be discarded. This classification was performed manually and is, of course, subjective. The goal here was not to achieve perfect matches, but to establish robust links between dengue incidence data and spatiotemporal data from Siraj *et al.* (2018).
+
+```{r linking_step3}
+# STEP 3: Perfect Department Match, Municipality Mismatch ----
+# Identify dengue municipalities with matching departments but differing municipality names
+sum(remaining_candidates$department_dist == 0 &
+    remaining_candidates$municipality_dist > 0)
+
+# Build a table of all candidate pairs (preserving duplicates)
+for (dengue_id in remaining_candidates$dengue_ID[
+  remaining_candidates$department_dist == 0
+]) {
+  
+  candidate_rows <- remaining_candidates[
+    remaining_candidates$dengue_ID == dengue_id,
+  ]
+  
+  iter_entry <- data.frame(
+    dengue_ID = dengue_id,
+    ocha_ID   = unique(candidate_rows$ADM2_PCODE),
+    muni_OCHA = unique(candidate_rows$adm2_std),
+    muni_OD   = dengue_munic_link$adm2_std[
+      dengue_munic_link$dengue_ID == dengue_id
+    ],
+    dept_OCHA = unique(candidate_rows$adm1_std),
+    dept_OD   = dengue_munic_link$adm1_std[
+      dengue_munic_link$dengue_ID == dengue_id
+    ]
+  )
+  
+  if (!exists("mismatch_summary")) {
+    mismatch_summary <- iter_entry
+  } else {
+    mismatch_summary <- rbind(mismatch_summary, iter_entry)
+  }
+}
+
+# Manually verified classifications based on visual inspection ----
+badfit_IDs  <- c(2, 3, 11, 13, 14, 19:23, 32, 35:43, 49)
+goodfit_IDs <- setdiff(seq_len(nrow(mismatch_summary)), badfit_IDs)
+
+
+# Visualize each candidate match ----
+for (i in seq_len(nrow(mismatch_summary))) {
+  od_gaul_code <- dengue_munic_link$FAO_GAUL_code[
+    dengue_munic_link$dengue_ID == mismatch_summary$dengue_ID[i]
+  ]
+  ocha_code <- mismatch_summary$ocha_ID[i]
+  
+  g <- plot_gaul_byIDs(
+    od_gaul_code = od_gaul_code,
+    ocha_munic_id = ocha_code,
+    od_shape = openDengue_shape,
+    ocha_shape = ocha_shape
+  )
+  
+  g <- g + ggtitle(
+    paste(i, ifelse(i %in% badfit_IDs, " - bad", " - good"))
+  )
+  print(g)
+}
+
+# Add "good" matches to final link table ----
+final_link_perfect <- rbind(
+  final_link_perfect,
+  remaining_candidates[
+    remaining_candidates$dengue_ID %in%
+      mismatch_summary$dengue_ID[goodfit_IDs],
+  ]
+)
+
+# Remove processed entries from remaining_candidates ----
+remaining_candidates <- remaining_candidates[
+  !remaining_candidates$dengue_ID %in% mismatch_summary$dengue_ID,
+]
+remaining_dengue_IDs <- setdiff(
+  remaining_dengue_IDs,
+  mismatch_summary$dengue_ID
+)
+
+# Inspect remaining match distances
+table(
+  remaining_candidates$department_dist,
+  remaining_candidates$municipality_dist
+)
+
+# Clean up temporary objects
+rm(dengue_id, candidate_rows, iter_entry, mismatch_summary,
+   badfit_IDs, goodfit_IDs, od_gaul_code, ocha_code, g)
+
+
+```
+
+### Step 4: Manual Review of Remaining Unmatched Municipalities
+
+After the previous matching steps, a small number of municipalities remain unmatched.
+In this step, we manually inspected the standardized department and municipality names from both datasets to check for possible correspondences.
+Since none showed strong evidence of being valid matches, these entries were excluded from the final linkage table.
+
+
+```{r linking_step4}
+# STEP 4: Manual inspection of remaining unmatched municipalities ----
+
+for (dengue_id in remaining_candidates$dengue_ID) {
+  
+  # Extract all OCHA candidates for this dengue municipality
+  ocha_candidates <- remaining_candidates[
+    remaining_candidates$dengue_ID == dengue_id,
+    c("adm1_std", "adm2_std")
+  ]
+  ocha_candidates$geometry <- NULL
+  colnames(ocha_candidates) <- c("dept_OCHA", "muni_OCHA")
+  
+  # Extract dengue municipality names
+  dengue_entry <- dengue_munic_link[
+    dengue_munic_link$dengue_ID == dengue_id,
+    c("adm1_std", "adm2_std")
+  ]
+  colnames(dengue_entry) <- c("dept_OD", "muni_OD")
+  
+  if (!exists("remaining_df")) {
+    remaining_df <- data.frame(dengue_id = dengue_id, 
+                               dept_OD = dengue_entry$dept_OD,
+                               muni_OD = dengue_entry$muni_OD,
+                               dept_OCH = ocha_candidates$dept_OCHA,
+                               muni_OCH = ocha_candidates$muni_OCHA)
+  } else {
+    remaining_df <- rbind(remaining_df, 
+                           data.frame(dengue_id = dengue_id, 
+                               dept_OD = dengue_entry$dept_OD,
+                               muni_OD = dengue_entry$muni_OD,
+                               dept_OCH = ocha_candidates$dept_OCHA,
+                               muni_OCH = ocha_candidates$muni_OCHA))
+  }
+}
+
+print(remaining_df)
+
+# No obvious good fits identified — linkage process completed.
+# Remaining entries are excluded from the final linkage dataset.
+rm(dengue_id, ocha_candidates, dengue_entry)
+
+```
+
+### Final Step: Storing the Matched Results
+
+After completing the three matching steps, 1009 out of 1063 municipalities (≈95%) were successfully linked between the OpenDengue (Clarke *et al.* 2024) and OCHA shapefile identifiers. The remaining cases were manually reviewed but discarded due to ambiguous or inconsistent matches.
+
+```{r step5_store}
+# Step 5 — Store final matched results --------------------------------------
+
+# Quick preview of the final link table
+head(final_link_perfect)
+
+# Proportion of successfully matched municipalities
+n_matched <- nrow(final_link_perfect)
+n_total <- nrow(dengue_munic_link)
+cat("Matched municipalities:", n_matched, "of", n_total,
+    "(", round(100 * n_matched / n_total, 1), "%)\n")
+
+# Keep only linkage-relevant columns and drop geometry if present
+final_link_clean <- final_link_perfect %>%
+  st_drop_geometry() %>%
+  select(dengue_ID, ADM2_PCODE) %>%
+  rename(ocha_ID = ADM2_PCODE)
+
+# Sanity checks for duplicates
+cat("Duplicated dengue_IDs:", any(duplicated(final_link_clean$dengue_ID)), "\n")
+cat("Duplicated ocha_IDs:", any(duplicated(final_link_clean$ocha_ID)), "\n")
+
+# Merge back with dengue metadata for reference
+linked_results <- dengue_munic_link %>%
+  inner_join(final_link_clean, by = "dengue_ID")
+
+# Save the linkage table
+write.table(
+  linked_results,
+  file = "../data/empirical/IDLinks.txt",
+  col.names = TRUE,
+  row.names = FALSE,
+  quote = FALSE,
+  sep = "\t"
+)
+
+cat("Linkage table saved as 'IDLinks.txt'\n")
+```
+
+
+
