@@ -3,14 +3,25 @@ The repository accompanies the manuscript *Gaussian Process emulation for explor
 
 ---
 
+
 ## Repository Structure
 
 | File                      | Description                                                                                                                                                                                                                                              |
 | ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **`src/SIR_gp.py`**           | Core implementation of the Gaussian Process emulator class that emulates the individual-based-model [DengueSim](https://github.com/AnnaMariaL/DengueSim). Automatically detects and uses GPU acceleration if available (via `torch.cuda.is_available()`); otherwise, it defaults to CPU computation. |
-| **`src/GP-demo.ipynb`**       | Jupyter notebook illustrating the principles behind GP emulation, including model training, prediction, sensitivity analysis, and comparison with true model outputs. 
-| **`src/gp_emulator_env.yml`** | Conda environment specification for GP usage.                                                                                                                                                            |
-| **`data/`**               | Directory containing example input/output data for model training and validation (if applicable). TBD                                                                                                                                                       |
+| **`src/GP-demo.ipynb`**       | Jupyter notebook illustrating the principles behind GP emulation, including model training, prediction, sensitivity analysis, and comparison with true model outputs. |
+| **`src/gp_emulator_env.yml`** | Conda environment specification for GP usage.|
+| **`src/EmpData-Link.Rmd`**  | R Markdown workflow used to link municipality-level data. |
+| **`data/`** | Directory containing simulation and empirical datasets used for emulator validation and calibration. |
+| **`data/empirical/`** | Contains real-world dengue incidence, environmental, and demographic data used for empirical analyses and data linkage. See below for details.  |
+
+### `data/empirical/` Directory Overview
+
+| Subdirectory / File | Description |
+| -------------------- | ------------ |
+| **`Clarke_et_al_2024/`** | Contains *OpenDengue* incidence data from Clarke *et al.* (2024). |
+| **`Siraj_et_al_2018/`** | Contains environmental and demographic indicators at the municipality level, originally published by Siraj *et al.* (2018). |
+| **`linkIDs.txt`** | Linkage table connecting dengue incidence data with environmental and demographic indicators at the municipality level (generated with `../src/EmpData-Link.Rmd`)  |
 
 ---
 
