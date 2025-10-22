@@ -12,7 +12,8 @@ The repository accompanies the manuscript *Gaussian Process emulation for explor
 | **`src/GP-demo.ipynb`**       | Jupyter notebook illustrating the principles behind GP emulation, including model training, prediction, sensitivity analysis, and comparison with true model outputs. |
 | **`src/gp_emulator_env.yml`** | Conda environment specification for GP usage.|
 | **`src/EmpData-Link.Rmd`**  | R Markdown workflow used to link municipality-level data. |
-| **`src/EmpData-Detect.Rmd`** | R Markdown workflow for identifying epidemic periods from dengue incidence time series and exporting detected epidemic intervals (see `OpenDengue*.txt` outputs under `data/empirical/`).     
+| **`src/EmpData-Detect.Rmd`** | R Markdown workflow for identifying epidemic periods from dengue incidence time series and exporting detected epidemic intervals (see `OpenDengue*.txt` outputs under `data/empirical/`). 
+| **`src/Parameter_Exploration_with_GP.ipynb`** | Jupyter notebook for municipality-specific calibration of the Gaussian Process emulator to empirical dengue outbreak data, identifying optimal parameter combinations that best reproduce observed maximum incidences (see `*tsv` outputs under `data/parameter_exploration`) |
 | **`data/`** | Directory containing simulation and empirical datasets used for emulator validation and calibration. |
 | **`data/empirical/`** | Contains real-world dengue incidence, environmental, and demographic data used for empirical analyses and data linkage. See below for details.  |
 
