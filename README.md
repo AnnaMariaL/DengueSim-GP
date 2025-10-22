@@ -15,11 +15,22 @@ The repository accompanies the manuscript *Gaussian Process emulation for explor
 | **`src/EmpData-Detect.Rmd`** | R Markdown workflow for identifying epidemic periods from dengue incidence time series and exporting detected epidemic intervals (see `OpenDengue*.txt` outputs under `data/empirical/`). 
 | **`src/EmpData-Calibrate.ipynb`** | Jupyter notebook for municipality-specific calibration of the Gaussian Process emulator to empirical dengue outbreak data, identifying optimal parameter combinations that best reproduce observed maximum incidences (see `*tsv` outputs under `data/parameter_exploration`) |
 | **`data/`** | Directory containing simulation and empirical datasets used for emulator validation and calibration. |
+| **`data/GP/`** | Contains the datasets and pre-trained Gaussian Process (GP) models used for training, testing, and reproducing the analyses presented in the manuscript (see details below).|
 | **`data/empirical/`** | Contains real-world dengue incidence, environmental, and demographic data used for empirical analyses and data linkage. See below for details.  |
 | **`data/parameter_exploration/`** | Contains output .tsv files from parameter exploration using the maximum incidence GP emulator. |
 
 
 ---
+
+### `data/GP/` Directory Overview
+
+| Subdirectory | Description                                                                                                                                                                                                                                                                |
+| ------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **`data/`**  | Contains the datasets used for training and testing the Gaussian Process (GP) models described in the manuscript.|
+| **`model/`** | Contains the pre-trained Gaussian Process (GP) models used in the manuscript for prediction, validation, and comparison with the original simulation results.|
+
+---
+
 
 ### `data/empirical/` Directory Overview
 
@@ -31,6 +42,7 @@ The repository accompanies the manuscript *Gaussian Process emulation for explor
 | **`OpenDengue_detected_epidemics.txt`**      | Summary of all detected dengue epidemics by municipality, including timing (`t`, `duration`) and peak incidence (`imax`).                                                 |
 | **`OpenDengue_detected_epidemics_full.txt`** | Full version of the detected epidemic dataset, containing start and end dates (`xmin`, `xmax`), municipality codes, epidemic IDs, thresholds, durations, and peak values. |
 ---
+
 
 ## Environment Setup
 
