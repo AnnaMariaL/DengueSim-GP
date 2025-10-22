@@ -39,7 +39,7 @@ The repository accompanies the manuscript *Gaussian Process emulation for explor
 | **`Clarke_et_al_2024/`** | Contains *OpenDengue* incidence data from Clarke *et al.* (2024). |
 | **`Siraj_et_al_2018/`** | Contains environmental and demographic indicators at the municipality level, originally published by Siraj *et al.* (2018). |
 | **`linkIDs.txt`** | Linkage table connecting dengue incidence data with environmental and demographic indicators at the municipality level (generated with `../src/EmpData-Link.Rmd`)  |
-| **`OpenDengue_detected_epidemics.txt`**      | Summary of all detected dengue epidemics by municipality, including timing (`t`, `duration`) and peak incidence (`imax`).                                                 |
+| **`OpenDengue_detected_epidemics.txt`**      | Summary of all detected dengue epidemics by municipality, including timing (`start_day`, `duration_days`) and peak incidence (`max_incidence`).                                                 |
 | **`OpenDengue_detected_epidemics_full.txt`** | Full version of the detected epidemic dataset, containing start and end dates (`xmin`, `xmax`), municipality codes, epidemic IDs, thresholds, durations, and peak values. |
 ---
 
