@@ -16,6 +16,7 @@ The repository accompanies the manuscript *Gaussian Process emulation for explor
 | **`src/Parameter_Exploration_with_GP.ipynb`** | Jupyter notebook for municipality-specific calibration of the Gaussian Process emulator to empirical dengue outbreak data, identifying optimal parameter combinations that best reproduce observed maximum incidences (see `*tsv` outputs under `data/parameter_exploration`) |
 | **`data/`** | Directory containing simulation and empirical datasets used for emulator validation and calibration. |
 | **`data/empirical/`** | Contains real-world dengue incidence, environmental, and demographic data used for empirical analyses and data linkage. See below for details.  |
+| **`data/parameter_exploration/`** | Contains output .tsv files from parameter exploration using the maximum incidence GP emulator. |
 
 
 ---
