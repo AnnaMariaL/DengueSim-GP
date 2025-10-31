@@ -1,0 +1,799 @@
+---
+title: "Figures & Statistics"
+author: "Anna Maria Langmüller"
+date: "2025"
+output: html_document
+---
+
+# Overview
+This R Markdown file generates the figures and performs basic statistical analyses used in the [*Gaussian Process Emulation for Exploring Complex Infectious Disease Models*](https://www.medrxiv.org/content/10.1101/2024.11.28.24318136v2).
+
+# Setup
+
+## Imports
+
+```{r setup, warning=FALSE, message=FALSE}
+# Setup: clear workspace, set working directory, and load packages
+rm(list = ls())
+setwd("./")
+
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+
+library(ggplot2)   # plotting
+library(dplyr)     # data manipulation
+library(patchwork) # combine ggplots
+library(scales)    # axis formatting
+library(lubridate) # date formatting
+library(lme4)      # stat modeling
+```
+
+## Functions
+
+```{r functions}
+source("manuscript_utils.R") #load functions 
+```
+
+## Data paths 
+
+```{r data_paths}
+# ----------------------------------------
+# Paths to GP training and test datasets
+# ----------------------------------------
+# Maximum incidence
+GP_IMAX_TRAIN   <- "../data/figure_data/training_progress_imax.tsv"
+GP_IMAX_TEST    <- "../data/figure_data/predictions_imax_round15_snap3_test.tsv"
+
+# Duration
+GP_DUR_TRAIN    <- "../data/figure_data/training_progress_duration.tsv"
+GP_DUR_TEST     <- "../data/figure_data/predictions_duration_round15_snap7_test.tsv"
+
+# Outbreak probability (previously called ESTablishment)
+GP_EST_TRAIN    <- "../data/figure_data/training_progress_outbreak-probability.tsv"
+GP_EST_TEST     <- "../data/figure_data/predictions_outbreak-probability_round15_snap5_test.tsv"
+
+# ----------------------------------------
+# Sensitivity Analysis (Sobol indices)
+# ----------------------------------------
+# Global input domain
+SA1_IMAX        <- "../data/figure_data/sobol_indices_imax.tsv"
+SA1_DUR         <- "../data/figure_data/sobol_indices_duration.tsv"
+SA1_EST         <- "../data/figure_data/sobol_indices_outbreak-probability.tsv"
+
+# Largest 2nd-order effect / heatmap predictions
+SA2_PRED_IMAX   <- "../data/figure_data/predictions_imax_round15_snap3_heatmap.tsv"
+SA2_PRED_DUR    <- "../data/figure_data/predictions_duration_round15_snap7_heatmap.tsv"
+SA2_PRED_EST    <- "../data/figure_data/predictions_outbreak-probability_round15_snap5_heatmap.tsv"
+
+# SA subsets (subdomain) for outbreak probability
+SA2_EST         <- "../data/figure_data/sobol_indices_outbreak-probability_subdomain.tsv"
+
+# Paths to parameter subdomain predictions
+SA2_PRED_EST_PATH <- "../data/figure_data/heatmap_alphaRest/GP/"
+SA2_PRED_EST_CPP  <- "../data/figure_data/heatmap_alphaRest/IBM/IBM-simulations_outbreak-probability_heatmap_alphaRest.tsv"
+
+# ----------------------------------------
+# Municipality-specific fits
+# ----------------------------------------
+# Average infectivity ("alphaRest") estimates 
+FIT_ALPHAREST_PATH <- "../data/parameter_exploration/top250_alphaRest_per_municipality.tsv"
+
+# Remaining parameters
+FIT_PARAMS_PATH    <- "../data/parameter_exploration/top250_lhs_parameters.tsv"
+
+# Predicted maximum incidence (best parameter fit)
+PRED_EPIDEMICS_PATH    <- "../data/parameter_exploration/gp_predictions_calibration.tsv"
+
+# Permutation test results
+PRED_PERMUTATIONS_PATH <- "../data/parameter_exploration/permutation_test_results.tsv"
+
+# Outlier threshold for top municipalities (highest median alphaRest)
+OUTLIER_THRES <- 0.05
+
+# Demography (Siraj et al. 2018)
+DEMOGRAPHY_PATH <- "../data/empirical/Siraj_et_al_2018/municip_aggregate_non_ts.csv"
+
+#Mosquito Scores (Siraj et al. 2018)
+MOSQUITO_PATH <- "../data/empirical/Siraj_et_al_2018/municip_Ae_aegypti_weeks_weighted.csv"
+
+#Detected epidemics
+EPIDEMICS_PATH <- "../data/empirical/OpenDengue_detected_epidemics_full.txt"
+EPIDEMICS_COMPACT_PATH <- "../data/empirical/OpenDengue_detected_epidemics.txt"
+# ----------------------------------------
+# Model parameters
+# ----------------------------------------
+#model parameter names in the GP implementation
+PARAMS <- c("alphaRest", "alphaAmp", "alphaShift", 
+            "infTicksCount", "avgVisitsCount","pVisits", 
+            "propSocialVisits", "locPerSGCount")
+
+#model parameter names in the manuscript
+PARAMS_LABELS <- c(
+  "Average infectivity", "Seasonality strength", "First case timing", 
+  "Infectious period", "Average mobility", "Mobility skewness",
+  "Social structure", "Family cluster size"
+)
+
+names(PARAMS_LABELS) <- PARAMS
+
+# ----------------------------------------
+# Plotting colors (https://www.color-hex.com/color-palette/13479)
+# ----------------------------------------
+COLORS <- c(
+  "#f29ad8", "#de5285", 
+  "#7583c9", "#eab8c5",
+  "#00cdff", "#de5285",
+  "#ffdd9f", "#ff5da5"
+)
+names(COLORS) <- c(
+  "first_effect", "total_effect", 
+  "second_order_effect_low", "second_order_effect_high",
+  "pred_low", "pred_high",
+  "highlight", "highlight2"
+)
+
+# ----------------------------------------
+# Figure saving flag
+# ----------------------------------------
+SAVE_FIGS <- FALSE
+```
+
+## Color limits 
+
+```{r calc_limits}
+# ----------------------------------------
+# Prepare uniform color limits for 2nd-order SA plots
+# ----------------------------------------
+
+# Load SA data for all outcomes
+sa_imax <- read_SA_data(SA1_IMAX, PARAMS)
+sa_dur  <- read_SA_data(SA1_DUR, PARAMS)
+sa_est  <- read_SA_data(SA1_EST, PARAMS)
+
+# Combine and filter for 2nd-order effects only
+sa_second_order <- dplyr::bind_rows(sa_imax, sa_dur, sa_est) %>%
+  dplyr::filter(effect == "Second Order")
+
+# Set uniform color limits for plotting
+second_order_limits <- c(0, max(sa_second_order$sobol) + 1e-2)
+
+# Clean up
+rm(sa_imax, sa_dur, sa_est, sa_second_order)
+gc()
+```
+
+# Figures & Stats
+
+## IBM vs. GP 
+
+```{r observed_predicted, fig.width=5.15, fig.height=5.15/2, fig.align='center'}
+# ----------------------------------------
+# Observed vs Predicted plots for GP models
+# ----------------------------------------
+plot_color <- COLORS["highlight"]
+
+# Load test data
+test_est <- prepare_test_data(GP_EST_TEST)
+test_imax <- prepare_test_data(GP_IMAX_TEST)
+test_dur <- prepare_test_data(GP_DUR_TEST)
+
+# Generate plots
+plot_est <- plot_GP_pred(
+  test_data = test_est,
+  resp = "establishment",
+  plot_color = plot_color,
+  label_x = "observed outbreak probability",
+  label_y = "predicted outbreak probability"
+) + scale_y_continuous(breaks = seq(0, 1, 0.25)) +
+    theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+plot_imax <- plot_GP_pred(
+  test_data = test_imax,
+  resp = "maxIncidence",
+  plot_color = plot_color,
+  label_x = bquote("observed" ~ italic(i)[italic(max)]),
+  label_y = bquote("predicted" ~ italic(i)[italic(max)])
+) + theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+plot_dur <- plot_GP_pred(
+  test_data = test_dur,
+  resp = "duration",
+  plot_color = plot_color,
+  label_x = bquote("observed" ~ log[10](duration)),
+  label_y = bquote("predicted" ~ log[10](duration))
+) + theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+# Combine plots with patchwork
+combined_plot <- plot_est | plot_imax | plot_dur
+combined_plot <- combined_plot + plot_annotation(tag_levels = 'A')
+
+# Save or display
+if (SAVE_FIGS) {
+  ggsave(
+    filename = "../figures/GP-obs-vs-pred.png",
+    plot = combined_plot,
+    width = 5.15,
+    height = 5.15 / 2,
+    dpi = 450,
+    units = "in"
+  )
+} else {
+  combined_plot
+}
+```
+
+## RMSE
+
+```{r rmse_validation, fig.width=5.15, fig.height = 5.15/2, fig.align='center'}
+# ----------------------------------------
+# RMSE validation plots for GP models
+# ----------------------------------------
+plot_color <- COLORS["highlight"]
+
+# Load and prepare data
+train_est <- prepare_train_snapshot(GP_EST_TRAIN)
+test_est  <- prepare_test_data(GP_EST_TEST)
+
+train_imax <- prepare_train_snapshot(GP_IMAX_TRAIN)
+test_imax  <- prepare_test_data(GP_IMAX_TEST)
+
+train_dur <- prepare_train_snapshot(GP_DUR_TRAIN)
+test_dur  <- prepare_test_data(GP_DUR_TEST)
+
+# Generate RMSE plots
+plot_est <- plot_rmse(train_est, test_est, resp = "establishment",
+                      plot_color = plot_color,
+                      y_label = bquote(RMSE["outbreak probability"])) +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+plot_imax <- plot_rmse(train_imax, test_imax, resp = "maxIncidence",
+                       plot_color = plot_color,
+                       y_label = bquote(RMSE[italic(i)[italic(max)]])) +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+plot_dur <- plot_rmse(train_dur, test_dur, resp = "duration",
+                      plot_color = plot_color,
+                      y_label = bquote(RMSE[duration])) +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+# Combine plots with patchwork
+combined_plot <- plot_est | plot_imax | plot_dur
+combined_plot <- combined_plot + plot_annotation(tag_levels = 'A')
+
+# Save or display
+if (SAVE_FIGS) {
+  ggsave(
+    filename = "../figures/GP-RMSE-ValidationData.png",
+    plot = combined_plot,
+    width = 5.15,
+    height = 5.15 / 2,
+    dpi = 450,
+    units = "in"
+  )
+} else {
+  combined_plot
+}
+```
+
+## Sensitivity Analysis
+
+### max incidence 
+
+```{r imax_SA, fig.width=7.5, fig.height=7.5, fig.align='center'}
+# ----------------------------------------
+# Sensitivity Analysis plot for max incidence GP
+# ----------------------------------------
+sa_data <- read_SA_data(path = SA1_IMAX, params = PARAMS)
+pred_data <- read.delim(SA2_PRED_IMAX, header = TRUE, sep = "\t")
+pred_data <- clip_pred(pred_data, c(0, 1))  # clip predictions to [0,1] range
+
+# 1. Bar plot of first-order and total effects
+plot_colors <- COLORS[c("first_effect", "total_effect")]
+plot_bar <- plot_SA_bar(sa_data,
+                        my_params_labels = PARAMS_LABELS,
+                        my_plot_colors = plot_colors)
+
+# 2. Heatmap of significant second-order effects
+plot_colors <- COLORS[c("second_order_effect_low", "second_order_effect_high", "highlight2")]
+plot_second_order <- plot_SA_second(sa_data,
+                                    my_params_labels = PARAMS_LABELS,
+                                    my_plot_colors = plot_colors,
+                                    my_plot_limits = second_order_limits)
+
+
+# 3. Heatmap of GP predictions for top 2nd order effects
+plot_colors <- COLORS[c("pred_low", "pred_high")]
+effects <- c("alphaAmp", "alphaShift")
+effect_labels <- PARAMS_LABELS[effects]
+
+plot_pred_heatmap <- plot_pred(pred_data, 
+                               my_vars = effects, 
+                               my_params_labels = effect_labels,
+                               my_plot_colors = plot_colors, 
+                               model_type = "imax")
+
+# Tweak themes for alignment
+plot_bar <- plot_bar + theme(axis.title.y = element_text(vjust = -25))
+plot_second_order <- plot_second_order + theme(axis.title.x = element_blank(),
+                                               axis.text.x = element_text(angle = 45, hjust = 1))
+plot_pred_heatmap <- plot_pred_heatmap + theme(axis.title.x = element_text(vjust = 25),
+                                               axis.text.x = element_text(angle = 0, hjust = 0.5))
+
+# Combine plots with patchwork
+combined_plot <- plot_bar / (plot_second_order + plot_pred_heatmap) +
+  plot_annotation(tag_levels = 'A') +
+  plot_layout(heights = c(0.5, 1))
+
+# Save or display
+if (SAVE_FIGS) {
+  ggsave(filename = "../figures/SA-imax.png", plot = combined_plot, width = 7.5, height = 7.5, dpi = 450, units = "in")
+} else {
+  print(combined_plot)
+}
+```
+
+### outbreak duration
+
+```{r duration_SA, fig.width=7.5, fig.height=7.5, fig.align='center'}
+# ----------------------------------------
+# Sensitivity Analysis plot for duration GP
+# ----------------------------------------
+sa_data <- read_SA_data(path = SA1_DUR, params = PARAMS)
+pred_data <- read.delim(SA2_PRED_DUR, header = TRUE, sep = "\t")
+pred_data <- clip_pred(pred_data, c(0, 3))  # clip predictions to [0,3] range
+
+# 1. Bar plot of first-order and total effects
+plot_colors <- COLORS[c("first_effect", "total_effect")]
+plot_bar <- plot_SA_bar(sa_data,
+                        my_params_labels = PARAMS_LABELS,
+                        my_plot_colors = plot_colors)
+
+# 2. Heatmap of significant second-order effects
+plot_colors <- COLORS[c("second_order_effect_low", "second_order_effect_high", "highlight2")]
+plot_second_order <- plot_SA_second(sa_data,
+                                    my_params_labels = PARAMS_LABELS,
+                                    my_plot_colors = plot_colors,
+                                    my_plot_limits = second_order_limits)
+
+
+# 3. Heatmap of GP predictions for top 2nd order effects
+plot_colors <- COLORS[c("pred_low", "pred_high")]
+effects <- c("alphaAmp", "alphaShift")
+effect_labels <- PARAMS_LABELS[effects]
+
+plot_pred_heatmap <- plot_pred(pred_data, 
+                               my_vars = effects, 
+                               my_params_labels = effect_labels,
+                               my_plot_colors = plot_colors, 
+                               model_type = "duration")
+
+# Tweak themes for alignment
+plot_bar <- plot_bar + theme(axis.title.y = element_text(vjust = -25))
+plot_second_order <- plot_second_order + theme(axis.title.x = element_blank(),
+                                               axis.text.x = element_text(angle = 45, hjust = 1))
+plot_pred_heatmap <- plot_pred_heatmap + theme(axis.title.x = element_text(vjust = 25),
+                                               axis.text.x = element_text(angle = 0, hjust = 0.5))
+
+# Combine plots with patchwork
+combined_plot <- plot_bar / (plot_second_order + plot_pred_heatmap) +
+  plot_annotation(tag_levels = 'A') +
+  plot_layout(heights = c(0.5, 1))
+
+# Save or display
+if (SAVE_FIGS) {
+  ggsave(filename = "../figures/SA-duration.png", plot = combined_plot, width = 7.5, height = 7.5, dpi = 450, units = "in")
+} else {
+  print(combined_plot)
+}
+```
+
+### outbreak probability
+
+```{r outbreak-probability_SA, fig.width=7.5, fig.height=7.5, fig.align='center'}
+# ----------------------------------------
+# Sensitivity Analysis plot for outbreak probability GP
+# ----------------------------------------
+sa_data <- read_SA_data(path = SA1_EST, params = PARAMS)
+pred_data <- read.delim(SA2_PRED_EST, header = TRUE, sep = "\t")
+pred_data <- clip_pred(pred_data, c(0, 1))  # clip predictions to [0,1] range
+
+# 1. Bar plot of first-order and total effects
+plot_colors <- COLORS[c("first_effect", "total_effect")]
+plot_bar <- plot_SA_bar(sa_data,
+                        my_params_labels = PARAMS_LABELS,
+                        my_plot_colors = plot_colors)
+
+# 2. Heatmap of significant second-order effects
+plot_colors <- COLORS[c("second_order_effect_low", "second_order_effect_high", "highlight2")]
+plot_second_order <- plot_SA_second(sa_data,
+                                    my_params_labels = PARAMS_LABELS,
+                                    my_plot_colors = plot_colors,
+                                    my_plot_limits = second_order_limits)
+
+
+# 3. Heatmap of GP predictions for top 2nd order effects
+plot_colors <- COLORS[c("pred_low", "pred_high")]
+effects <- c("alphaRest", "avgVisitsCount")
+effect_labels <- PARAMS_LABELS[effects]
+
+plot_pred_heatmap <- plot_pred(pred_data, 
+                               my_vars = effects, 
+                               my_params_labels = effect_labels,
+                               my_plot_colors = plot_colors, 
+                               model_type = "establishment")
+
+# Tweak themes for alignment
+plot_bar <- plot_bar + theme(axis.title.y = element_text(vjust = -25))
+plot_second_order <- plot_second_order + theme(axis.title.x = element_blank(),
+                                               axis.text.x = element_text(angle = 45, hjust = 1))
+plot_pred_heatmap <- plot_pred_heatmap + theme(axis.title.x = element_text(vjust = 25),
+                                               axis.text.x = element_text(angle = 0, hjust = 0.5))
+
+# Combine plots with patchwork
+combined_plot <- plot_bar / (plot_second_order + plot_pred_heatmap) +
+  plot_annotation(tag_levels = 'A') +
+  plot_layout(heights = c(0.5, 1))
+
+# Save or display
+if (SAVE_FIGS) {
+  ggsave(filename = "../figures/SA-outbreak-probability.png", plot = combined_plot, width = 7.5, height = 7.5, dpi = 450, units = "in")
+} else {
+  print(combined_plot)
+}
+```
+
+#### subdomain
+
+```{r outbreak-probability_SA_subdomain, fig.width=7.5, fig.height=7.5, fig.align='center'}
+# ----------------------------------------
+# Sensitivity Analysis plot for outbreak probability in subdomains
+# ----------------------------------------
+
+
+# Infection probabilities for plots and simulations
+alphas <- c(0.0026, 0.0047, 0.0074, 0.01)
+orientation_points <- data.frame(x = alphas, y = 1.5)
+
+# --- Load Sensitivity Analysis and Prediction Data ---
+sa_est <- read_SA_data(path = SA2_EST, params = PARAMS)
+
+# Combine all Gaussian Process predictions (multiple .tsv files)
+sa_pred_files <- list.files(
+  path = SA2_PRED_EST_PATH,
+  pattern = glob2rx("*.tsv"),
+  full.names = TRUE
+)
+
+sa_pred <- sa_pred_files |>
+  lapply(read.csv, header = TRUE, sep = "\t") |>
+  do.call(what = rbind, args = _)
+
+rownames(sa_pred) <- NULL
+sa_pred <- clip_pred(df = sa_pred, limits = c(0, 1))
+sa_pred$alphaRest <- round(sa_pred$alphaRest, 4)
+
+# Load simulation-based predictions
+sa_sim <- read.table(SA2_PRED_EST_CPP, header = TRUE, sep = "\t")
+sa_sim$alphaRest <- round(sa_sim$alphaRest, 4)
+sa_sim$mean <- sa_sim$establishment  # for compatibility with plot_pred()
+
+# --- (A) Dynamic Sensitivity Map ---
+effects <- c("alphaRest", "avgVisitsCount")
+effect_labels <- PARAMS_LABELS[effects]
+plot_colors <- COLORS[c("second_order_effect_low", "second_order_effect_high")]
+
+plot_SA_subdomains <- plot_sa_dynamic(
+  df = sa_est,
+  my_vars = effects,
+  my_params_labels = effect_labels,
+  my_plot_colors = plot_colors,
+  focal_param = "alphaShift",
+  effect_type = "First Order"
+)
+plot_SA_subdomains <- plot_SA_subdomains + geom_point(
+  data = orientation_points,
+  aes(x = x, y = y),
+  color = COLORS["highlight"],
+  size = 2,
+  shape = 8
+)
+
+# --- (B) Gaussian Process Predictions ---
+effects <- c("alphaAmp", "alphaShift")
+effect_labels <- PARAMS_LABELS[effects]
+plot_colors <- COLORS[c("pred_low", "pred_high")]
+
+plot_pred_GP <- plot_pred(
+  df = subset(sa_pred, alphaRest %in% alphas),
+  my_vars = effects,
+  my_params_labels = effect_labels,
+  my_plot_colors = plot_colors,
+  model_type = "establishment"
+)
+plot_pred_GP <- plot_pred_GP +
+  facet_grid(~alphaRest) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  ggtitle("Gaussian Process")
+
+# --- (C) Individual-Based Model Predictions ---
+plot_pred_IBM <- plot_pred(
+  df = subset(sa_sim, alphaRest %in% alphas),
+  my_vars = effects,
+  my_params_labels = effect_labels,
+  my_plot_colors = plot_colors,
+  model_type = "establishment"
+)
+plot_pred_IBM <- plot_pred_IBM +
+  facet_grid(~alphaRest) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        legend.position = "none") +
+  ggtitle("Individual-based Model")
+
+# --- Combine panels ---
+combined_plot <- (plot_spacer() + plot_SA_subdomains + plot_spacer()) / (plot_pred_GP / plot_pred_IBM)
+combined_plot <- combined_plot +
+  plot_layout(heights = c(1, 2.5)) +
+  plot_annotation(tag_levels = "A")
+
+# --- Save or display figure ---
+if (SAVE_FIGS) {
+  ggsave(
+    filename = "../figures/SA_outbreak-probability_subdomain.png",
+    plot = combined_plot,
+    width = 7.5,
+    height = 7.5,
+    dpi = 450,
+    units = "in"
+  )
+} else {
+  combined_plot
+}
+
+```
+
+## Empirical Data 
+
+### travel times vs. mosquito abundance
+
+```{r travel-time_mosquito-abundance}
+
+# --- Load and prepare municipality-level data --------------------------
+
+# Demography data (includes mean travel times)
+demography <- read.csv(DEMOGRAPHY_PATH)
+
+# Mosquito probability scores (weekly)
+mosquitoes <- read.csv(MOSQUITO_PATH)
+
+# Handle week 53 by copying week 1 values
+mosquitoes$week53 <- mosquitoes$week1
+
+# Reshape wide-to-long: one row per municipality-week
+mosquitoes <- reshape2::melt(mosquitoes, id.vars = c("ID_ESPACIA", "NOM_MUNICI"))
+mosquitoes$week <- as.integer(gsub("week", "", mosquitoes$variable))
+mosquitoes$variable <- NULL
+colnames(mosquitoes)[colnames(mosquitoes) == "value"] <- "aedes_score"
+
+# --- Merge with detected epidemics ---
+
+epidemics <- read.table(EPIDEMICS_PATH, header = TRUE, sep = "\t")
+epidemics$ID_ESPACIA <- as.integer(gsub("CO", "", epidemics$ocha_ID))
+epidemics$week <- week(epidemics$xmin)
+
+# Merge in travel time and mosquito data
+epidemics <- merge(
+  epidemics,
+  demography[, c("ID_ESPACIA", "MeanTraveltime")],
+  by = "ID_ESPACIA"
+)
+epidemics <- merge(
+  epidemics,
+  mosquitoes[, c("ID_ESPACIA", "aedes_score", "week")],
+  by = c("ID_ESPACIA", "week")
+)
+
+# --- Define rural threshold and subset ---
+
+# Limit to municipalities in the upper 15% of travel times (rural)
+rural_thres <- quantile(
+  demography$MeanTraveltime[
+    demography$ID_ESPACIA %in% epidemics$ID_ESPACIA
+  ],
+  0.85
+)
+
+rural_subset <- epidemics[epidemics$MeanTraveltime >= rural_thres, ]
+
+# --- Correlation analysis ---
+
+# Spearman’s rank correlation: do more remote (rural) municipalities
+# show higher predicted mosquito abundance?
+cor_result <- cor.test(
+  rural_subset$MeanTraveltime,
+  rural_subset$aedes_score,
+  method = "spearman",
+  alternative = "greater"
+)
+
+# results
+cat("\n--- Spearman correlation: travel time vs. mosquito abundance ---\n")
+print(cor_result)
+```
+
+### seasonality
+
+```{r outbreak_seasonality}
+
+# Read epidemic onset data
+epidemics <- read.table(EPIDEMICS_PATH, header = TRUE, sep = "\t")
+
+# Extract ISO week of epidemic onset
+epidemics$week <- week(epidemics$xmin)
+
+# Expected frequency under uniform probability (53 ISO weeks possible)
+n_total <- nrow(epidemics)
+expected <- rep(n_total / 53, 53)
+
+# Observed frequency of epidemic onsets per week
+observed <- tabulate(epidemics$week, nbins = 53)
+
+# Chi-square test for deviation from uniform weekly distribution
+chisq_test <- chisq.test(observed, p = expected, rescale.p = TRUE)
+
+chisq_test
+```
+
+### infectivity estimates
+
+```{r outbreak_hotspots, fig.width=5.15, fig.height=2.6, fig.align='center'}
+# ----------------------------------------
+# Municipality-specific average infectivity estimates
+# ----------------------------------------
+
+# Load municipality-level data
+demography <- read.csv(DEMOGRAPHY_PATH)
+
+# Merge municipality-specific infection probabilities with fitted parameters
+alpha_pred <- format_alphaRest_distr(
+  path_alphas   = FIT_ALPHAREST_PATH,
+  path_params   = FIT_PARAMS_PATH,
+  outlier_thres = OUTLIER_THRES
+)
+
+# Add demographic information
+alpha_pred$ID_ESPACIA <- as.integer(gsub("CO", "", as.character(alpha_pred$municipality)))
+alpha_pred <- merge(alpha_pred, demography, by = "ID_ESPACIA")
+
+# Plot distributions of alphaRest by municipality
+plot_colors <- c("black", COLORS["highlight"])
+param_labels <- c("Municipality", PARAMS_LABELS["alphaRest"])
+
+plot_municipality_alpha <- plot_alpha_dist(
+  my_df           = alpha_pred,
+  my_plot_colors  = plot_colors,
+  my_param_labels = param_labels
+) + theme(axis.title.x = element_text(vjust = 25))
+
+# Plot economic comparison for municipalities with high average infectivity estimates
+plot_municipality_GCP <- plot_GCP(
+  my_df          = alpha_pred,
+  test_var       = "MeanGCP_2005USD",
+  my_plot_colors = plot_colors,
+  my_x_label     = "Municipality",
+  my_y_label     = bquote(log[10](GCP[avg]))
+) + theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# Combine plots
+combined_plot <- (plot_municipality_alpha | plot_municipality_GCP) +
+  plot_annotation(tag_levels = 'A') +
+  plot_layout(widths = c(2.5, 1))
+
+if (SAVE_FIGS) {
+  ggsave(
+    filename = "../figures/empirical_alphaRest.png",
+    plot     = combined_plot,
+    width    = 5.15,
+    height   = 2.6,
+    dpi      = 450,
+    units    = "in"
+  )
+} else {
+  combined_plot
+}
+```
+
+### GP model performance
+
+```{r pred_performance,fig.width=5.15, fig.height=2.6, fig.align='center', warning=FALSE}
+# ----------------------------------------
+# Calibrated GP performance on empirical data
+# ----------------------------------------
+
+# Load predicted and permuted datasets
+pred_epidemics   <- read.csv(PRED_EPIDEMICS_PATH, sep = "\t", header = TRUE)
+pred_permutations <- read.csv(PRED_PERMUTATIONS_PATH, sep = "\t", header = TRUE)
+
+plot_colors <- COLORS["highlight"]
+
+# Performance metrics
+rmse  <- sqrt(mean((pred_epidemics[["max_incidence"]] - pred_epidemics[["pred"]])^2))
+nrmse <- rmse / mean(pred_epidemics[["max_incidence"]])
+
+cat("RMSE:", round(rmse, 4), "\n")
+cat("NRMSE:", round(nrmse, 4), "\n")
+
+# Observed vs. predicted correlation plot
+plot_predictions <- plot_obs_pred(
+  my_df      = pred_epidemics,
+  my_var     = "max_incidence",
+  my_plot_colors = plot_colors,
+  my_label_x = bquote("observed" ~ italic(i)[italic(max)]),
+  my_label_y = bquote("predicted" ~ italic(i)[italic(max)])
+)
+
+# Permutation test visualization
+plot_perm <- plot_permutations(
+  permut_df      = pred_permutations,
+  pred           = pred_epidemics,
+  permut_type    = "both",
+  my_plot_colors = plot_colors
+)
+
+# Combine panels
+combined_plot <- plot_predictions | plot_perm
+combined_plot <- combined_plot + plot_annotation(tag_levels = 'A')
+
+if (SAVE_FIGS) {
+  ggsave(
+    filename = "../figures/empirical_prediction_performance.png",
+    plot     = combined_plot,
+    width    = 5.15,
+    height   = 2.6,
+    dpi      = 450,
+    units    = "in"
+  )
+} else {
+  combined_plot
+}
+```
+```{r lmm_alternative, warning=FALSE}
+# Load and prepare epidemic data
+epidemics <- read.table(EPIDEMICS_COMPACT_PATH, header = TRUE, sep = "\t") %>%
+  group_by(ocha_ID) %>%
+  filter(n() >= 3) %>%    # keep municipalities with ≥3 outbreaks
+  ungroup() %>%
+  mutate(imax_log10 = log10(max_incidence))
+
+# Split into training and test sets
+test_data_ids <- read.table(PRED_EPIDEMICS_PATH, header = TRUE, sep = "\t")$epidemic_id
+fit_data  <- epidemics[!epidemics$epidemic_id %in% test_data_ids, ]
+test_data <- epidemics[ epidemics$epidemic_id %in% test_data_ids, ]
+
+# Fit linear mixed model
+my_lmer <- lmer(imax_log10 ~ start_day + (1 | ocha_ID), data = fit_data)
+
+# Predict on test data (include random effects where available)
+test_data$pred_lmer <- predict(my_lmer,
+                               newdata = test_data,
+                               re.form = ~(1 | ocha_ID))
+
+# Evaluate predictive correlation
+cor.test(test_data$imax_log10, test_data$pred_lmer, method = "spearman")
+
+
+# # --- Basic LMM diagnostics ---
+# # Residual extraction
+# resid_vals  <- resid(my_lmer)
+# fitted_vals <- fitted(my_lmer)
+# 
+# # Plot residuals vs fitted (homoscedasticity check)
+# plot(fitted_vals, resid_vals,
+#      xlab = "Fitted values",
+#      ylab = "Residuals",
+#      main = "Residuals vs Fitted")
+# 
+# # QQ plot (normality of residuals)
+# qqnorm(resid_vals, main = "Normal Q-Q Plot")
+# qqline(resid_vals, col = "red", lwd = 1)
+
+```
+
