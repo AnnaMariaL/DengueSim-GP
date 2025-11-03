@@ -60,8 +60,8 @@ This file was generated through the documented workflow in `src/EmpData-Detect.R
 | ------------- | ---------------------------------------------- |
 | `ocha_ID`     | OCHA municipality identifier                   |
 | `epidemic_id` | Unique epidemic identifier                     |
-| `t`           | Start day of epidemic         |
-| `imax`        | Maximum adjusted dengue incidence (proportion) |
+| `start_day`           | Start day of epidemic         |
+| `max_incidence`        | Maximum adjusted dengue incidence (proportion) |
 | `duration`    | Duration of epidemic in days                   |
 
 ---
@@ -75,7 +75,7 @@ This file was generated through the documented workflow in `src/EmpData-Detect.R
 | ------------- | -------------------------------------------------------- |
 | `xmin`        | Epidemic start date (ISO format)                         |
 | `xmax`        | Epidemic end date (ISO format)                           |
-| `ADM2_PCODE`  | OCHA municipality identifier                             |
+| `ocha_ID`  | OCHA municipality identifier                             |
 | `epidemic_id` | Unique epidemic identifier                               |
 | `thres`       | Epidemic detection threshold (median adjusted incidence) |
 | `duration`    | Duration of epidemic in days                             |
