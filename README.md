@@ -74,13 +74,7 @@ The `src/SIR_gp.py` script defines a **Gaussian Process (GP) class** using `gpyt
 * **Training and prediction** routines with automatic data handling.
 
 * **Hardware flexibility**:
-  The implementation checks for GPU availability:
-
-  ```python
-  device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-  model.to(device)
-  ```
-
+  The implementation checks for GPU availability.
   This ensures the code will utilize GPU acceleration when available (greatly improving training time), but remains fully functional on CPU.
 ---
 
