@@ -58,9 +58,10 @@ figure_data/
 | `pVisits` | **Mobility skewness** – parameter controlling variability of daily visits. |
 | `propSocialVisits` | **Social structure** – probability that a visit occurs within a family cluster. |
 | `locPerSGCount` | **Family cluster size** – number of locations per family cluster. |
-| `mean` or `pred` | Predicted outcome (imax, duration, or outbreak probability). |
+| `mean` or `pred` | Predicted outcome (imax, duration, or outbreak probability (= establishment). |
 | `lower` | Lower bound of CI. |
 | `upper` | Upper bound of CI. |
+| `establishment` | Outbreak probability. |
 | `maxIncidence` | Highest proportion of infectious individuals seen in any timestep (for `maxIncidence` model). |
 | `epidemicSize` | Final epidemic size (not used in manuscript). |
 | `duration` | Duration of the epidemic (log-transformed). |
